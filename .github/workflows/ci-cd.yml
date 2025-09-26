@@ -242,7 +242,7 @@ jobs:
           APP_BASE_URL: ${{ needs.deploy-cfn-staging.outputs.alb_url }} # URL del ALB de Staging desde salidas
         run: |
           echo "Running acceptance tests against: $APP_BASE_URL"
-          sleep 30 # Espera prudencial para el registro del target en el ALB
+          sleep 90 # Espera prudencial para el registro del target en el ALB
           pytest tests/test_acceptance_app.py # Ejecutar las pruebas de aceptación
 
   # -------------------------------------
