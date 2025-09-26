@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template para desplegar la aplicacion notas en ECS Fargate
+  con ALB. Usa la VPC por defecto y el LabRole existente.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: "Nombre del entorno (ej: staging, production). Usado para nombrar recursos."
+    AllowedValues: [staging, production]
+  DockerImageUri:
+    Type: String
+    Description: "URI completo de la imagen Docker a desplegar (ej: usuario/repo:tag)."
+  LabRoleArn:
+    Type: String
+    Description: ARN completo del rol IAM 'LabRole' existente en la cuenta.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID de la VPC por defecto donde desplegar.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Lista de al menos DOS IDs de subredes PuBLICAS de la VPC por defecto en diferentes AZs.
+
+Resources:
+  # --- Grupo de Logs para ECS ---
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/notas-${EnvironmentName}-task'
+      RetentionInDays: 7 # Retener logs por 7 días (ajusta si es necesario)
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Cluster ECS ---
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'notas-${EnvironmentName}-cluster'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Seguridad ---
+  # Security Group para el Load Balancer (permite HTTP desde internet)
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'alb-sg-${EnvironmentName}'
+      GroupDescription: Permite trafico HTTP al ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # Security Group para el Servicio ECS (permite trafico desde el ALB en el puerto 8000)
+  ECSServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'ecs-service-sg-${EnvironmentName}'
+      GroupDescription: Permite trafico desde el ALB al servicio ECS
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000 # Puerto del contenedor
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup # Solo permite desde el ALB SG
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Load Balancer ---
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub 'notas-${EnvironmentName}-alb'
+      Subnets: !Ref SubnetIds # Debe estar en subredes publicas
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Scheme: internet-facing
+      Type: application
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # Listener HTTP en el puerto 80
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ECSTargetGroup
+
+# Target Group para las tareas ECS
+  ECSTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub 'tg-ecs-${EnvironmentName}'
+      VpcId: !Ref VpcId
+      Port: 8000 # Puerto del contenedor
+      Protocol: HTTP
+      TargetType: ip # Necesario para Fargate
+      # --- Propiedades de Health Check (CORREGIDO) ---
+      HealthCheckEnabled: true
+      HealthCheckPath: /health # Endpoint de health check de la app
+      HealthCheckPort: '8000' # Puerto del contenedor
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckIntervalSeconds: 15 # Nombre corregido
+      HealthCheckTimeoutSeconds: 5  # Nombre corregido
+      # --- Fin Propiedades de Health Check ---
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Definicion de Tarea ECS ---
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: ECSLogGroup # Asegura que el Log Group exista primero
+    Properties:
+      Family: !Sub 'notas-${EnvironmentName}-task'
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '256' # 0.25 vCPU (minimo Fargate)
+      Memory: '512' # 0.5 GB (minimo Fargate)
+      TaskRoleArn: !Ref LabRoleArn # Rol para permisos DENTRO del contenedor (si necesita llamar a otros servicios AWS)
+      ExecutionRoleArn: !Ref LabRoleArn # Rol para que ECS/Fargate pueda descargar imagen, enviar logs, etc.
+      ContainerDefinitions:
+        - Name: !Sub 'notas-${EnvironmentName}-container'
+          Image: !Ref DockerImageUri # Imagen de Docker Hub
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              # Usar !Ref para hacer referencia al Log Group creado
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Servicio ECS ---
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub 'notas-${EnvironmentName}-service'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 1 # Numero inicial de tareas
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED # Necesario en subredes publicas sin NAT Gateway
+          Subnets: !Ref SubnetIds # Las mismas subredes publicas del ALB
+          SecurityGroups:
+            - !Ref ECSServiceSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Sub 'notas-${EnvironmentName}-container'
+          ContainerPort: 8000
+          TargetGroupArn: !Ref ECSTargetGroup
+      # DesiredCount y TaskDefinition se actualizan en despliegues posteriores
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50 # Permite que baje al 50% durante el deploy
+        MaximumPercent: 200 # Permite que suba al 200% temporalmente
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    DependsOn: # Asegura que el listener exista antes de crear el servicio
+      - ALBListener
+
+Outputs:
+  ALBDnsName:
+    Description: DNS Name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-ALBDnsName'
+  ECSClusterName:
+    Description: Name of the ECS Cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSClusterName'
+  ECSServiceName:
+    Description: Name of the ECS Service
+    Value: !GetAtt ECSService.Name # Obtener el nombre completo del servicio
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSServiceName'
