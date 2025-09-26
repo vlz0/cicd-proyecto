@@ -1,0 +1,89 @@
+name: Workflow Despliegue CloudFormation
+
+on:
+  workflow_call:
+    inputs:
+      stack-name:
+        required: true
+        type: string
+      environment-name:
+        required: true
+        type: string
+      repo-name:
+        required: true
+        type: string
+      image-tag:
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: true
+      LAB_ROLE_ARN:
+        required: true
+      VPC_ID:
+        required: true
+      SUBNET_IDS:
+        required: true
+    outputs:
+      alb_url:
+        description: "The URL of the deployed Application Load Balancer"
+        value: ${{ jobs.deploy.outputs.alb_url }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      alb_url: ${{ steps.get_stack_outputs.outputs.alb_url }}
+    steps:
+      # 1. Checkout del código
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configurar credenciales de AWS
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      # 3. Desplegar/Actualizar el stack CloudFormation
+      - name: Deploy CloudFormation Stack
+        run: |
+          IMAGE_URI="${{ secrets.DOCKERHUB_USERNAME }}/${{ inputs.repo-name }}:${{ inputs.image-tag }}"
+          echo "Deploying Image URI: $IMAGE_URI"
+
+          aws cloudformation deploy \
+            --template-file template.yaml \
+            --stack-name ${{ inputs.stack-name }} \
+            --parameter-overrides \
+              EnvironmentName=${{ inputs.environment-name }} \
+              DockerImageUri=$IMAGE_URI \
+              LabRoleArn=${{ secrets.LAB_ROLE_ARN }} \
+              VpcId=${{ secrets.VPC_ID }} \
+              SubnetIds="${{ secrets.SUBNET_IDS }}" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changes
+
+      # 4. Obtener las salidas del Stack CloudFormation
+      - name: Get Stack Outputs
+        id: get_stack_outputs
+        run: |
+          STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name ${{ inputs.stack-name }} --query "Stacks[0].Outputs" --region us-east-1)
+          ALB_DNS_NAME=$(echo $STACK_OUTPUTS | jq -r '.[] | select(.OutputKey=="ALBDnsName") | .OutputValue')
+
+          if [ -z "$ALB_DNS_NAME" ] || [ "$ALB_DNS_NAME" == "null" ]; then
+            echo "Error: Could not retrieve ALBDnsName from stack output."
+            exit 1
+          fi
+
+          ALB_URL_HTTP="http://${ALB_DNS_NAME}/"
+          echo "ALB URL: $ALB_URL_HTTP"
+          echo "alb_url=${ALB_URL_HTTP}" >> $GITHUB_OUTPUT
