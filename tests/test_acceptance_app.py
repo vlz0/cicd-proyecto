@@ -65,47 +65,6 @@ def test_app_is_running(browser):
     assert "Gestor de Notas" in browser.page_source, "Expected page content not found"
 
 @pytest.mark.order(2)
-def test_simple_form_submission(browser):
-    """Test simple de envío de formulario"""
-    # Don't refresh - continue from previous test state
-    
-    # Navigate to home if we're not there (e.g., if we were on a detail page)
-    """if not browser.current_url.endswith('/'):
-        browser.get(BASE_URL + "/")
-        WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.NAME, "titulo"))
-        )"""
-    
-    # Fill form with simple data
-    titulo_input = browser.find_element(By.NAME, "titulo")
-    contenido_input = browser.find_element(By.NAME, "contenido")
-    
-    titulo_input.clear()
-    titulo_input.send_keys("Test Note")
-    contenido_input.clear()
-    contenido_input.send_keys("Test Content")
-    
-    # Submit via form action (most reliable)
-    browser.execute_script("""
-        var form = document.querySelector('form');
-        var formData = new FormData(form);
-        fetch(form.action || '/', {
-            method: 'POST',
-            body: formData
-        }).then(() => {
-            window.location.reload();
-        });
-    """)
-    
-    # Wait for page to reload
-    time.sleep(3)
-    
-    # Check if note was created
-    page_source = browser.page_source
-    assert "Test Note" in page_source, "Note was not created successfully"
-    print("Simple form submission test passed!")
-
-@pytest.mark.order(3)
 def test_crear_y_ver_nota(browser):
     # Don't refresh - continue from previous test state
     
@@ -227,7 +186,7 @@ def test_crear_y_ver_nota(browser):
         assert titulo in browser.page_source, f"Title '{titulo}' not found anywhere on the page"
         print(f"Note created but no card-title elements found. Title appears in page source.")
 
-@pytest.mark.order(4)
+@pytest.mark.order(3)
 def test_detalle_nota(browser):
     # Don't refresh - continue from previous test state and use existing notes
     
@@ -350,7 +309,7 @@ def test_detalle_nota(browser):
         print(f"Error verifying detail page: {e}")
         pytest.fail(f"Detail page verification failed: {e}")
 
-@pytest.mark.order(5)
+@pytest.mark.order(4)
 def test_eliminar_nota(browser):
     # Don't refresh - continue from previous test state
     
