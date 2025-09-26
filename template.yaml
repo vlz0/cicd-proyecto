@@ -103,7 +103,7 @@ Resources:
   ECSTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub 'tg-ecs-${EnvironmentName}'
+      Name: !Sub 'tg2-ecs-${EnvironmentName}'
       VpcId: !Ref VpcId
       Port: 8000 # Puerto del contenedor
       Protocol: HTTP
