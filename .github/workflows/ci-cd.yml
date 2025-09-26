@@ -243,7 +243,7 @@ jobs:
         run: |
           echo "Running acceptance tests against: $APP_BASE_URL"
           sleep 90 # Espera prudencial para el registro del target en el ALB
-          pytest tests/test_acceptance_app.py # Ejecutar las pruebas de aceptación
+          pytest tests/test_acceptance_app.py -v -s
 
   # -------------------------------------
   # Job de Despliegue CloudFormation Producción
