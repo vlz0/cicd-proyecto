@@ -46,7 +46,7 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub 'alb-sg-${EnvironmentName}'
+      GroupName: !Sub 'alb2-sg-${EnvironmentName}'
       GroupDescription: Permite trafico HTTP al ALB
       VpcId: !Ref VpcId
       SecurityGroupIngress:
@@ -62,7 +62,7 @@ Resources:
   ECSServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub 'ecs-service-sg-${EnvironmentName}'
+      GroupName: !Sub 'ecs-service2-sg-${EnvironmentName}'
       GroupDescription: Permite trafico desde el ALB al servicio ECS
       VpcId: !Ref VpcId
       SecurityGroupIngress:
