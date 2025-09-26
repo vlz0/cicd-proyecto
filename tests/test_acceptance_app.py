@@ -70,11 +70,11 @@ def test_simple_form_submission(browser):
     # Don't refresh - continue from previous test state
     
     # Navigate to home if we're not there (e.g., if we were on a detail page)
-    if not browser.current_url.endswith('/'):
+    """if not browser.current_url.endswith('/'):
         browser.get(BASE_URL + "/")
         WebDriverWait(browser, 10).until(
             EC.presence_of_element_located((By.NAME, "titulo"))
-        )
+        )"""
     
     # Fill form with simple data
     titulo_input = browser.find_element(By.NAME, "titulo")
